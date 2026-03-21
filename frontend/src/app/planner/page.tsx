@@ -109,7 +109,7 @@ export default function AiPlannerPage() {
       await studyPlanAPI.generate({
         subjectIds: selectedSubjects,
         dailyAvailableMinutes: totalDailyMinutes,
-        freeTimeSlots: timeSlots.map(s => s.id),
+        //freeTimeSlots: timeSlots.map(s => s.id),
         timeSlotDurations: timeSlots.map(s => ({
           slot: s.id,
           minutes: (s.hours * 60) + s.minutes
