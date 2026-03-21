@@ -110,10 +110,10 @@ export default function AiPlannerPage() {
         subjectIds: selectedSubjects,
         dailyAvailableMinutes: totalDailyMinutes,
         //freeTimeSlots: timeSlots.map(s => s.id),
-        timeSlotDurations: timeSlots.map(s => ({
-          slot: s.id,
-          minutes: (s.hours * 60) + s.minutes
-        })),
+        // timeSlotDurations: timeSlots.map(s => ({
+        //   slot: s.id,
+        //   minutes: (s.hours * 60) + s.minutes
+        // })),
         startDate,
         endDate,
         difficultyLevel: difficulty,
