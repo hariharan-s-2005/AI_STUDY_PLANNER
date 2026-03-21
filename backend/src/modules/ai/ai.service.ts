@@ -5,7 +5,9 @@ import { HfInference } from '@huggingface/inference';
 @Injectable()
 export class AiService {
   private hf: HfInference;
-  private readonly MODEL = 'meta-llama/Llama-3.1-8B-Instruct';
+  // private readonly MODEL = 'meta-llama/Llama-3.1-8B-Instruct';
+  private readonly MODEL = 'mistralai/Mistral-7B-Instruct-v0.3';
+  
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get('HF_API_KEY');
