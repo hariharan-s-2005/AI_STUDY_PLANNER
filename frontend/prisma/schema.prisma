@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String         @id @default(uuid())
+  email             String         @unique
+  password          String
+  firstName         String?
+  lastName          String?
+  avatar            String?
+  timezone          String         @default("UTC")
+  dailyGoal         Int            @default(240)
+  streakCount       Int            @default(0)
+  lastStudyDate     DateTime?
+  totalStudyMinutes Int            @default(0)
+  level             Int            @default(1)
+  experiencePoints  Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  subjects      Subject[]
+  studyPlans    StudyPlan[]
+  studySessions StudySession[]
+  progressLogs  ProgressLog[]
+  achievements  UserAchievement[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Subject {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  color       String   @default("#3B82F6")
+  icon        String?
+  description String?
+  targetGrade String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topics        Topic[]
+  studySessions StudySession[]
+
+  @@index([userId])
+  @@map("subjects")
+}
+
+model Topic {
+  id             String   @id @default(uuid())
+  subjectId      String
+  name           String
+  description    String?
+  difficulty     String   @default("medium")
+  priority       Int      @default(5)
+  estimatedHours Float    @default(1.0)
+  status         String   @default("not_started")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([subjectId])
+  @@map("topics")
+}
+
+model StudyPlan {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  totalHours  Float    @default(0)
+  status      String   @default("active")
+  aiGenerated Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([userId])
+  @@map("study_plans")
+}
+
+model Task {
+  id             String    @id @default(uuid())
+  studyPlanId    String
+  topicId        String?
+  title          String
+  description    String?
+  plannedMinutes Int       @default(30)
+  actualMinutes  Int       @default(0)
+  difficulty     String    @default("medium")
+  status         String    @default("pending")
+  priority       Int       @default(5)
+  scheduledDate  DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  studyPlan StudyPlan     @relation(fields: [studyPlanId], references: [id], onDelete: Cascade)
+  topic     Topic?        @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  sessions  StudySession[]
+
+  @@index([studyPlanId])
+  @@index([scheduledDate])
+  @@map("tasks")
+}
+
+model StudySession {
+  id         String    @id @default(uuid())
+  userId     String
+  subjectId  String?
+  taskId     String?
+  startTime  DateTime  @default(now())
+  endTime    DateTime?
+  duration   Int       @default(0)
+  focusScore Int?
+  notes      String?
+  mood       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([startTime])
+  @@map("study_sessions")
+}
+
+model ProgressLog {
+  id              String   @id @default(uuid())
+  userId          String
+  date            DateTime @default(now())
+  tasksCompleted  Int      @default(0)
+  tasksPlanned    Int      @default(0)
+  studyMinutes    Int      @default(0)
+  focusScore      Int?
+  completionRate  Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([date])
+  @@map("progress_logs")
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  icon        String
+  category    String
+  criteria    Json
+  points      Int      @default(100)
+  createdAt   DateTime @default(now())
+
+  users UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+  earnedAt      DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  actionUrl String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
