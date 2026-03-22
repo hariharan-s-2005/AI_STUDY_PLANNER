@@ -1,3 +1,4 @@
+import fetch from "node-fetch";
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
