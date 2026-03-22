@@ -164,15 +164,15 @@ export default function AiPlannerPage() {
       await studyPlanAPI.generate({
         subjectIds: selectedSubjects,
         dailyAvailableMinutes: totalDailyMinutes,
-<<<<<<< HEAD
+
         //freeTimeSlots: timeSlots.map(s => s.id),
         // timeSlotDurations: timeSlots.map(s => ({
         //   slot: s.id,
         //   minutes: (s.hours * 60) + s.minutes
         // })),
-=======
+
         timeWindows: validWindows.map(w => ({ startTime: w.startTime, endTime: w.endTime })),
->>>>>>> work
+
         startDate,
         endDate,
         difficultyLevel: 'medium',
