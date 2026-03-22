@@ -1,12 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { StudyPlan } from '../../schemas/study-plan.schema';
-import { Task } from '../../schemas/task.schema';
-import { Subject } from '../../schemas/subject.schema';
-import { User } from '../../schemas/user.schema';
-import { ProgressLog } from '../../schemas/progress-log.schema';
-import { AiService } from '../ai/ai.service';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import { StudyPlan } from "../../schemas/study-plan.schema";
+import { Task } from "../../schemas/task.schema";
+import { Subject } from "../../schemas/subject.schema";
+import { User } from "../../schemas/user.schema";
+import { ProgressLog } from "../../schemas/progress-log.schema";
+import { AiService } from "../ai/ai.service";
 
 @Injectable()
 export class StudyPlanService {
@@ -31,7 +31,15 @@ export class StudyPlanService {
   }
 
   async generateStudyPlan(userId: string, data: any) {
-    const { subjectIds, dailyAvailableMinutes, startDate, endDate, difficultyLevel, planDuration } = data;
+    const {
+      subjectIds,
+      dailyAvailableMinutes,
+      timeWindows,
+      startDate,
+      endDate,
+      difficultyLevel,
+      planDuration,
+    } = data;
 
     const subjects = await this.subjectModel.find({
       _id: { $in: subjectIds.map((id: string) => new Types.ObjectId(id)) },
@@ -39,23 +47,26 @@ export class StudyPlanService {
     });
 
     if (subjects.length === 0) {
-      throw new NotFoundException('No subjects found');
+      throw new NotFoundException("No subjects found");
     }
 
     const aiPlan = await this.aiService.generateStudyPlan({
-      subjects: subjects.map(s => ({
+      subjects: subjects.map((s) => ({
         name: s.name,
         chapters: s.chapters,
       })),
       dailyAvailableMinutes,
+      timeWindows: timeWindows || [],
       startDate,
       endDate,
       difficultyLevel,
     });
 
+
+
     const studyPlan = await this.planModel.create({
       userId: new Types.ObjectId(userId),
-      name: `${planDuration || 'Custom'} Study Plan`,
+      name: `${planDuration || "Custom"} Study Plan`,
       description: `AI-generated ${planDuration} plan`,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
@@ -73,13 +84,16 @@ export class StudyPlanService {
           difficulty: task.difficulty,
           priority: task.priority,
           scheduledDate: new Date(task.scheduledDate),
-          status: 'pending',
+          startTime: task.startTime,
+          endTime: task.endTime,
+          status: "pending",
           metadata: {
             subjectName: task.subjectName,
             chapterName: task.chapterName,
+            timeSlot: task.timeSlot,
           },
-        })
-      )
+        }),
+      ),
     );
 
     return {
@@ -90,7 +104,8 @@ export class StudyPlanService {
   }
 
   async getStudyPlans(userId: string) {
-    return this.planModel.find({ userId: new Types.ObjectId(userId) })
+    return this.planModel
+      .find({ userId: new Types.ObjectId(userId) })
       .sort({ createdAt: -1 });
   }
 
@@ -101,18 +116,21 @@ export class StudyPlanService {
     });
 
     if (!plan) {
-      throw new NotFoundException('Study plan not found');
+      throw new NotFoundException("Study plan not found");
     }
 
-    const tasks = await this.taskModel.find({ studyPlanId: plan._id })
+    const tasks = await this.taskModel
+      .find({ studyPlanId: plan._id })
       .sort({ scheduledDate: 1, priority: -1 });
 
     return { ...plan.toObject(), tasks };
   }
 
   async getTasks(userId: string, filters?: any) {
-    const plans = await this.planModel.find({ userId: new Types.ObjectId(userId) });
-    const planIds = plans.map(p => p._id);
+    const plans = await this.planModel.find({
+      userId: new Types.ObjectId(userId),
+    });
+    const planIds = plans.map((p) => p._id);
 
     const query: any = { studyPlanId: { $in: planIds } };
 
@@ -127,23 +145,28 @@ export class StudyPlanService {
       query.scheduledDate = { $gte: startOfDay, $lt: endOfDay };
     }
 
-    return this.taskModel.find(query).sort({ scheduledDate: 1, priority: -1 });
+    return this.taskModel.find(query).sort({ scheduledDate: 1, startTime: 1, priority: -1 });
   }
 
   async updateTask(userId: string, taskId: string, data: any) {
     const task = await this.taskModel.findById(taskId);
     if (!task) {
-      throw new NotFoundException('Task not found');
+      throw new NotFoundException("Task not found");
     }
 
     const updated = await this.taskModel.findByIdAndUpdate(
       taskId,
-      { ...data, completedAt: data.status === 'completed' ? new Date() : undefined },
-      { new: true }
+      {
+        ...data,
+        completedAt: data.status === "completed" ? new Date() : undefined,
+      },
+      { new: true },
     );
 
-    if (data.status === 'completed') {
-      await this.updateUserProgress(userId, task.plannedMinutes);
+    if (data.status === "completed") {
+      const minutesStudied = data.actualMinutes || task.plannedMinutes;
+      await this.updateUserProgress(userId, minutesStudied);
+      await this.updateChapterCompletion(task);
     }
 
     return updated;
@@ -153,13 +176,39 @@ export class StudyPlanService {
     return this.taskModel.create({
       ...data,
       studyPlanId: new Types.ObjectId(data.studyPlanId),
-      status: 'pending',
+      status: "pending",
     });
   }
 
   async deleteTask(userId: string, taskId: string) {
     await this.taskModel.findByIdAndDelete(taskId);
-    return { message: 'Task deleted' };
+    return { message: "Task deleted" };
+  }
+
+  private async updateChapterCompletion(task: any) {
+    const metadata = task.metadata;
+    if (!metadata?.subjectName || !metadata?.chapterName) return;
+
+    try {
+      const subject = await this.subjectModel.findOne({
+        name: metadata.subjectName,
+        userId: task.userId,
+      });
+
+      if (!subject) return;
+
+      const chapters = subject.chapters || [];
+      const chapterIndex = chapters.findIndex(
+        (c: any) => (c.name || c.title) === metadata.chapterName,
+      );
+
+      if (chapterIndex !== -1 && !chapters[chapterIndex].completed) {
+        chapters[chapterIndex].completed = true;
+        await this.subjectModel.findByIdAndUpdate(subject._id, { chapters });
+      }
+    } catch (err) {
+      console.error("Error updating chapter completion:", err);
+    }
   }
 
   private async updateUserProgress(userId: string, minutesStudied: number) {
@@ -167,11 +216,14 @@ export class StudyPlanService {
     today.setHours(0, 0, 0, 0);
 
     await this.userModel.findByIdAndUpdate(userId, {
-      $inc: { totalStudyMinutes: minutesStudied, experiencePoints: Math.floor(minutesStudied / 10) },
+      $inc: {
+        totalStudyMinutes: minutesStudied,
+        experiencePoints: Math.floor(minutesStudied / 10),
+      },
       lastStudyDate: new Date(),
     });
 
-    let log = await this.progressLogModel.findOne({
+    const log = await this.progressLogModel.findOne({
       userId: new Types.ObjectId(userId),
       date: { $gte: today, $lt: new Date(today.getTime() + 86400000) },
     });

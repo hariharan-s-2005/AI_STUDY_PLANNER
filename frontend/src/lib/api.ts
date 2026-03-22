@@ -86,6 +86,8 @@ export const studyPlanAPI = {
   generate: (data: {
     subjectIds: string[];
     dailyAvailableMinutes: number;
+    freeTimeSlots?: string[];
+    timeSlotDurations?: { slot: string; minutes: number; startTime: string; endTime: string }[];
     startDate: string;
     endDate: string;
     difficultyLevel: string;
@@ -108,9 +110,17 @@ export const progressAPI = {
   getSubjectAnalytics: () => api.get('/api/progress/subjects'),
 };
 
+// Users
+export const usersAPI = {
+  getProfile: () => api.get('/api/users/me'),
+  updateProfile: (data: { firstName?: string; lastName?: string; email?: string; timezone?: string; dailyGoal?: number }) =>
+    api.put('/api/users/me', data),
+};
+
 // AI
 export const aiAPI = {
-  chat: (message: string) => api.post('/api/ai/chat', { message: sanitizeMessage(message) }),
+  chat: (message: string, history?: { role: string; content: string }[]) =>
+    api.post('/api/ai/chat', { message: sanitizeMessage(message), history }),
 };
 
 export default api;

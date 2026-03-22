@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsNumber, IsArray } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsOptional, IsNumber, IsArray, IsEmail } from "class-validator";
+import { ApiProperty } from "@nestjs/swagger";
 
 export class UpdateUserDto {
   @ApiProperty({ required: false })
@@ -11,6 +11,11 @@ export class UpdateUserDto {
   @IsString()
   @IsOptional()
   lastName?: string;
+
+  @ApiProperty({ required: false })
+  @IsEmail()
+  @IsOptional()
+  email?: string;
 
   @ApiProperty({ required: false })
   @IsString()
@@ -29,11 +34,11 @@ export class UpdateUserDto {
 }
 
 export class CreateSubjectDto {
-  @ApiProperty({ example: 'Mathematics' })
+  @ApiProperty({ example: "Mathematics" })
   @IsString()
   name: string;
 
-  @ApiProperty({ example: '#3B82F6', required: false })
+  @ApiProperty({ example: "#3B82F6", required: false })
   @IsString()
   @IsOptional()
   color?: string;

@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { Subject } from '../../schemas/subject.schema';
-import { CreateSubjectDto } from './dto/subjects.dto';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import { Subject } from "../../schemas/subject.schema";
+import { CreateSubjectDto } from "./dto/subjects.dto";
 
 @Injectable()
 export class SubjectsService {
@@ -18,7 +18,7 @@ export class SubjectsService {
     const subject = await this.subjectModel.create({
       userId: new Types.ObjectId(userId),
       name: createSubjectDto.name,
-      color: createSubjectDto.color || '#3B82F6',
+      color: createSubjectDto.color || "#3B82F6",
       icon: createSubjectDto.icon,
       description: createSubjectDto.description,
       targetGrade: createSubjectDto.targetGrade,
@@ -34,7 +34,7 @@ export class SubjectsService {
     });
 
     if (!subject) {
-      throw new NotFoundException('Subject not found');
+      throw new NotFoundException("Subject not found");
     }
 
     subject.chapters.push(chapter);
@@ -42,18 +42,26 @@ export class SubjectsService {
     return subject;
   }
 
-  async updateChapter(userId: string, subjectId: string, chapterIndex: number, data: any) {
+  async updateChapter(
+    userId: string,
+    subjectId: string,
+    chapterIndex: number,
+    data: any,
+  ) {
     const subject = await this.subjectModel.findOne({
       _id: new Types.ObjectId(subjectId),
       userId: new Types.ObjectId(userId),
     });
 
     if (!subject) {
-      throw new NotFoundException('Subject not found');
+      throw new NotFoundException("Subject not found");
     }
 
     if (chapterIndex >= 0 && chapterIndex < subject.chapters.length) {
-      subject.chapters[chapterIndex] = { ...subject.chapters[chapterIndex], ...data };
+      subject.chapters[chapterIndex] = {
+        ...subject.chapters[chapterIndex],
+        ...data,
+      };
       await subject.save();
     }
 
@@ -67,7 +75,7 @@ export class SubjectsService {
     });
 
     if (!subject) {
-      throw new NotFoundException('Subject not found');
+      throw new NotFoundException("Subject not found");
     }
 
     subject.chapters.splice(chapterIndex, 1);
@@ -77,13 +85,16 @@ export class SubjectsService {
 
   async updateSubject(userId: string, subjectId: string, data: any) {
     const subject = await this.subjectModel.findOneAndUpdate(
-      { _id: new Types.ObjectId(subjectId), userId: new Types.ObjectId(userId) },
+      {
+        _id: new Types.ObjectId(subjectId),
+        userId: new Types.ObjectId(userId),
+      },
       data,
-      { new: true }
+      { new: true },
     );
 
     if (!subject) {
-      throw new NotFoundException('Subject not found');
+      throw new NotFoundException("Subject not found");
     }
 
     return subject;
@@ -96,9 +107,9 @@ export class SubjectsService {
     });
 
     if (!subject) {
-      throw new NotFoundException('Subject not found');
+      throw new NotFoundException("Subject not found");
     }
 
-    return { message: 'Subject deleted successfully' };
+    return { message: "Subject deleted successfully" };
   }
 }

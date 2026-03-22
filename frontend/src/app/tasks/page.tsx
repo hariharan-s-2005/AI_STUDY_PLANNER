@@ -73,12 +73,17 @@ export default function TasksPage() {
   };
 
   const formatTimeSlot = (task: Task) => {
-    if (task.metadata?.timeSlot) return task.metadata.timeSlot;
+    // Always prefer the task's actual start/end times (most precise)
     if (task.startTime && task.endTime) {
-      return `${formatTime(task.startTime)} - ${formatTime(task.endTime)}`;
+      return `${task.startTime} - ${task.endTime}`;
+    }
+    // Fallback to metadata slot label only if no direct times
+    if (task.metadata?.timeSlot && task.metadata.timeSlot !== 'study' && task.metadata.timeSlot !== 'break') {
+      return task.metadata.timeSlot;
     }
     return null;
   };
+
 
   const formatTime = (timeStr: string) => {
     const [hours, minutes] = timeStr.split(':').map(Number);
@@ -252,15 +257,26 @@ export default function TasksPage() {
     setDontAskDelete(false);
   };
 
-  const filteredTasks = tasks.filter(task => {
-    if (filter === 'pending') return task.status !== 'completed';
-    if (filter === 'completed') return task.status === 'completed';
-    return true;
-  });
+  const filteredTasks = tasks
+    .filter(task => {
+      if (filter === 'pending') return task.status !== 'completed';
+      if (filter === 'completed') return task.status === 'completed';
+      return true;
+    })
+    .sort((a, b) => {
+      const dateA = a.scheduledDate || '';
+      const dateB = b.scheduledDate || '';
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      const timeA = a.startTime || '99:99';
+      const timeB = b.startTime || '99:99';
+      return timeA.localeCompare(timeB);
+    });
 
   const completedCount = tasks.filter(t => t.status === 'completed').length;
   const pendingCount = tasks.filter(t => t.status !== 'completed').length;
-  const totalMinutesStudied = tasks.reduce((sum, t) => sum + (t.actualMinutes || 0), 0);
+  const totalMinutesStudied = tasks
+    .filter(t => t.status === 'completed')
+    .reduce((sum, t) => sum + (t.actualMinutes || t.plannedMinutes || 0), 0);
   const progress = tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0;
 
   const getDifficultyColor = (difficulty: string) => {
@@ -427,8 +443,8 @@ export default function TasksPage() {
                           )}
                           {task.metadata?.chapterName && (
                             <>
-                              <span className="text-xs text-muted-foreground">•</span>
-                              <span className="text-xs text-muted-foreground">{task.metadata.chapterName}</span>
+                              <span className="text-xs text-muted-foreground">-</span>
+                              <span className="text-xs font-medium text-muted-foreground">{task.metadata.chapterName}</span>
                             </>
                           )}
                         </div>
@@ -438,7 +454,7 @@ export default function TasksPage() {
                         {timeSlot && (
                           <div className="flex items-center gap-1 mt-1">
                             <Clock className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">{timeSlot}</span>
+                            <span className="text-xs font-medium text-muted-foreground">{timeSlot}</span>
                           </div>
                         )}
                         {task.actualMinutes > 0 && (

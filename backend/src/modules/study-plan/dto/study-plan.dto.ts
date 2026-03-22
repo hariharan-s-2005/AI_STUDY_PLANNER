@@ -1,8 +1,14 @@
-import { IsString, IsNumber, IsOptional, IsArray, IsDateString } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  IsDateString,
+} from "class-validator";
+import { ApiProperty } from "@nestjs/swagger";
 
 export class CreateStudyPlanDto {
-  @ApiProperty({ example: 'Final Exam Prep' })
+  @ApiProperty({ example: "Final Exam Prep" })
   @IsString()
   name: string;
 
@@ -11,22 +17,25 @@ export class CreateStudyPlanDto {
   @IsOptional()
   description?: string;
 
-  @ApiProperty({ example: '2024-03-01' })
+  @ApiProperty({ example: "2024-03-01" })
   @IsDateString()
   startDate: string;
 
-  @ApiProperty({ example: '2024-03-15' })
+  @ApiProperty({ example: "2024-03-15" })
   @IsDateString()
   endDate: string;
 }
 
 export class GeneratePlanDto {
-  @ApiProperty({ example: 'Final Exam Prep' })
+  @ApiProperty({ example: "Final Exam Prep" })
   @IsString()
   @IsOptional()
   name?: string;
 
-  @ApiProperty({ type: [String], example: ['subject-uuid-1', 'subject-uuid-2'] })
+  @ApiProperty({
+    type: [String],
+    example: ["subject-uuid-1", "subject-uuid-2"],
+  })
   @IsArray()
   @IsString({ each: true })
   subjectIds: string[];
@@ -35,15 +44,15 @@ export class GeneratePlanDto {
   @IsNumber()
   dailyAvailableMinutes: number;
 
-  @ApiProperty({ example: '2024-03-01' })
+  @ApiProperty({ example: "2024-03-01" })
   @IsDateString()
   startDate: string;
 
-  @ApiProperty({ example: '2024-03-15' })
+  @ApiProperty({ example: "2024-03-15" })
   @IsDateString()
   endDate: string;
 
-  @ApiProperty({ example: 'medium', enum: ['easy', 'medium', 'hard'] })
+  @ApiProperty({ example: "medium", enum: ["easy", "medium", "hard"] })
   @IsString()
   @IsOptional()
   difficultyLevel?: string;

@@ -1,10 +1,14 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import * as bcrypt from 'bcryptjs';
-import { User } from '../../schemas/user.schema';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+} from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import * as bcrypt from "bcryptjs";
+import { User } from "../../schemas/user.schema";
+import { RegisterDto, LoginDto } from "./dto/auth.dto";
 
 @Injectable()
 export class AuthService {
@@ -14,10 +18,12 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    const existingUser = await this.userModel.findOne({ email: registerDto.email });
+    const existingUser = await this.userModel.findOne({
+      email: registerDto.email,
+    });
 
     if (existingUser) {
-      throw new ConflictException('Email already registered');
+      throw new ConflictException("Email already registered");
     }
 
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
@@ -41,13 +47,16 @@ export class AuthService {
     const user = await this.userModel.findOne({ email: loginDto.email });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException("Invalid credentials");
     }
 
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      loginDto.password,
+      user.password,
+    );
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     const token = this.generateToken(user._id.toString());
@@ -62,7 +71,7 @@ export class AuthService {
     const user = await this.userModel.findById(userId);
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException("User not found");
     }
 
     return this.sanitizeUser(user);

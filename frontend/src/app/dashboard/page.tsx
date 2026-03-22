@@ -6,7 +6,7 @@ import DashboardLayout from '@/components/layout/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { subjectsAPI } from '@/lib/api';
+import { subjectsAPI, progressAPI, studyPlanAPI } from '@/lib/api';
 import { useAuthStore } from '@/store';
 import { Brain, TrendingUp, Clock, Target, Flame, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -39,9 +39,31 @@ export default function DashboardPage() {
 
   const fetchData = async () => {
     try {
-      const subjectsRes = await subjectsAPI.getAll();
+      const [subjectsRes, tasksRes, progressRes] = await Promise.all([
+        subjectsAPI.getAll(),
+        studyPlanAPI.getTasks().catch(() => null),
+        progressAPI.getWeeklyStats().catch(() => null),
+      ]);
       setSubjects(subjectsRes.data || []);
-      setProgressData(null);
+
+      const tasksData = tasksRes?.data || [];
+      const completedTasks = tasksData.filter((t: any) => t.status === 'completed');
+
+      const totalMinutes = completedTasks.reduce(
+        (sum: number, t: any) => sum + (t.actualMinutes || t.plannedMinutes || 0),
+        0,
+      );
+      const avgDailyMinutes = Math.round(totalMinutes / 7);
+      const totalSessions = completedTasks.length;
+
+      const progressResult = progressRes?.data || null;
+
+      setProgressData({
+        totalMinutes: totalMinutes,
+        dailyStats: progressResult?.dailyStats || [],
+        avgDailyMinutes: avgDailyMinutes,
+        totalSessions: totalSessions,
+      });
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -118,9 +140,11 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-bold">
-                    {progressData ? Math.round(progressData.totalMinutes / 60 * 10) / 10 : 0}h
+                    {progressData && progressData.totalMinutes > 0
+                      ? `${Math.round((progressData.totalMinutes / 60) * 10) / 10}h`
+                      : '0h'}
                   </div>
-                  <p className="text-xs text-muted-foreground">This week</p>
+                  <p className="text-xs text-muted-foreground">Completed</p>
                 </CardContent>
               </Card>
 
