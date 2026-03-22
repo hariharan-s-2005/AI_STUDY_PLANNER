@@ -56,11 +56,37 @@ export default function DashboardPage() {
       const avgDailyMinutes = Math.round(totalMinutes / 7);
       const totalSessions = completedTasks.length;
 
-      const progressResult = progressRes?.data || null;
+      // Generate daily stats from completed tasks using local timezone formatting
+      const getLocalDateString = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const generatedDailyStats = [];
+
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = getLocalDateString(d);
+
+        const dayTasks = completedTasks.filter((t: any) => {
+          // Fallback to scheduledDate or updated if completedAt is missing
+          const taskDate = new Date(t.completedAt || t.updatedAt || t.scheduledDate || new Date());
+          return getLocalDateString(taskDate) === dateStr;
+        });
+
+        generatedDailyStats.push({
+          date: dateStr,
+          totalMinutes: dayTasks.reduce((sum: number, t: any) => sum + (t.actualMinutes || t.plannedMinutes || 0), 0),
+          sessionsCount: dayTasks.length,
+        });
+      }
 
       setProgressData({
         totalMinutes: totalMinutes,
-        dailyStats: progressResult?.dailyStats || [],
+        dailyStats: generatedDailyStats,
         avgDailyMinutes: avgDailyMinutes,
         totalSessions: totalSessions,
       });
