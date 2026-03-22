@@ -224,15 +224,26 @@ export class AiService {
       const chapters = chaptersPerDay[day];
       if (chapters.length === 0) continue;
 
-      // Time per chapter (equal split, minus breaks)
+      // Time per chapter (weighted proportional split based on difficulty, minus breaks)
       const breakCount = chapters.length > 1 ? chapters.length - 1 : 0;
       const studyBudget = Math.max(1, dailyMinutes - breakCount * 5);
-      const minsPerChapter = Math.max(1, Math.floor(studyBudget / chapters.length));
+
+      const getDifficultyWeight = (diff: string) => {
+        const d = (diff || "medium").toLowerCase();
+        if (d === "easy") return 1;
+        if (d === "hard") return 3;
+        return 2; // medium
+      };
+
+      const totalWeight = chapters.reduce((sum, ch) => sum + getDifficultyWeight(ch.difficulty), 0);
 
       // Build atomic task queue: [study, break, study, break, ...]
       const taskQueue: { type: "study" | "break"; chapter?: typeof allChapters[0]; minutes: number }[] = [];
       chapters.forEach((ch, ci) => {
-        taskQueue.push({ type: "study", chapter: ch, minutes: minsPerChapter });
+        const weight = getDifficultyWeight(ch.difficulty);
+        const minsForThisChapter = Math.max(1, Math.floor((weight / totalWeight) * studyBudget));
+        
+        taskQueue.push({ type: "study", chapter: ch, minutes: minsForThisChapter });
         if (ci < chapters.length - 1) {
           taskQueue.push({ type: "break", minutes: 5 });
         }
