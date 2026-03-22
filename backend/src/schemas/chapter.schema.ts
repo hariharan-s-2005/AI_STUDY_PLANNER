@@ -1,5 +1,5 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Types } from "mongoose";
 
 @Schema({ timestamps: true })
 export class Chapter extends Document {
@@ -9,7 +9,7 @@ export class Chapter extends Document {
   @Prop()
   description?: string;
 
-  @Prop({ default: 'medium' })
+  @Prop({ default: "medium" })
   difficulty: string;
 
   @Prop({ default: 1 })

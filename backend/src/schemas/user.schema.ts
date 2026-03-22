@@ -1,5 +1,5 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Types } from "mongoose";
 
 @Schema({ timestamps: true })
 export class User extends Document {
@@ -18,7 +18,7 @@ export class User extends Document {
   @Prop()
   avatar?: string;
 
-  @Prop({ default: 'UTC' })
+  @Prop({ default: "UTC" })
   timezone: string;
 
   @Prop({ default: 240 })

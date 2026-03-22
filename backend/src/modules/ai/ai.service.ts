@@ -1,224 +1,311 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { HfInference } from '@huggingface/inference';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class AiService {
-  private hf: HfInference;
-  private readonly MODEL = 'meta-llama/Llama-3.1-8B-Instruct';
+  private apiKey: string;
+  private readonly MODEL = "meta-llama/Llama-3.2-1B-Instruct";
+  private readonly API_URL =
+    "https://router.huggingface.co/v1/chat/completions";
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get('HF_API_KEY');
-    this.hf = new HfInference(apiKey);
+    this.apiKey = this.configService.get("HF_API_KEY") || "";
+  }
+
+  private async callAI(
+    messages: { role: string; content: string }[],
+    maxTokens = 1024,
+    temperature = 0.7,
+  ): Promise<string> {
+    const response = await fetch(this.API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: this.MODEL,
+        messages,
+        max_tokens: maxTokens,
+        temperature,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`AI API error: ${response.status} - ${err}`);
+    }
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || "";
   }
 
   async generateStudyPlan(input: any) {
-    const subjectsData = input.subjects?.map((s: any) => ({
-      name: s.name,
-      chapters: (s.chapters || []).map((c: any) => ({
-        name: c.title || c.name,
-        difficulty: c.difficulty,
-      })),
-    })) || [];
-
-    // Calculate number of days
-    const startDate = new Date(input.startDate);
-    const endDate = new Date(input.endDate);
-    const numDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-    
-    // Get time slot durations
-    const timeSlotDurations = input.timeSlotDurations || [];
-    const dailyMinutes = input.dailyAvailableMinutes || 120;
-    const freeTimeSlots = input.freeTimeSlots || [];
-
-    // Build time slot info
-    const slotInfo = timeSlotDurations.length > 0
-      ? timeSlotDurations.map((t: any) => `${t.slot}: ${t.minutes} min`).join(', ')
-      : `Total daily: ${dailyMinutes} minutes`;
-
-    const prompt = `Create a ${numDays}-day study plan.
-
-Subjects: ${JSON.stringify(subjectsData, null, 2)}
-Time slots per day: ${slotInfo}
-Start date: ${input.startDate}
-Days: ${numDays}
-Difficulty: ${input.difficultyLevel || 'medium'}
-
-Rules:
-1. Create tasks for EACH day from start to end date
-2. Each day should have study sessions during the specified time slots
-3. Show exact times like "9:00 AM - 9:45 AM"
-4. Add 10-minute breaks between 45-min sessions
-5. Spread chapters across days
-
-Return ONLY JSON:
-{"tasks":[{"title":"Study Chapter Name","description":"details","subjectName":"subject","chapterName":"chapter","plannedMinutes":45,"difficulty":"medium","priority":5,"scheduledDate":"2026-03-21","startTime":"09:00","endTime":"09:45","timeSlot":"9:00 AM - 9:45 AM"}],"insights":{"strengths":[],"areasToFocus":[],"tips":[]}}`;
-
-    try {
-      const response = await this.hf.chatCompletion({
-        model: this.MODEL,
-        messages: [
-          { role: 'system', content: 'You are an expert study planner. Return ONLY valid JSON.' },
-          { role: 'user', content: prompt },
-        ],
-        max_tokens: 2000,
-        temperature: 0.3,
-      });
-
-      let responseText = response.choices?.[0]?.message?.content || '{}';
-      responseText = responseText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
-      
-      const jsonStart = responseText.indexOf('{');
-      const jsonEnd = responseText.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        responseText = responseText.substring(jsonStart, jsonEnd + 1);
-      }
-
-      const parsed = JSON.parse(responseText);
-      const tasks = parsed.tasks || [];
-      
-      // Check if tasks are distributed across days
-      const uniqueDates = new Set(tasks.map((t: any) => t.scheduledDate));
-      
-      // If AI didn't generate enough tasks for all days, use simple plan
-      if (uniqueDates.size < numDays * 0.5 || tasks.length < numDays) {
-        console.log('AI did not distribute tasks properly, using simple plan');
-        return this.generateSimplePlan(input);
-      }
-      
-      return {
-        totalHours: (dailyMinutes * numDays) / 60,
-        tasks,
-        insights: parsed.insights || {
-          strengths: ['Good plan'],
-          areasToFocus: ['Practice'],
-          tips: ['Stay consistent']
-        }
-      };
-    } catch (error: any) {
-      console.error('AI Error:', error?.message || error);
-      return this.generateSimplePlan(input);
-    }
+    return this.generateSimplePlan(input);
   }
 
-  async chat(message: string) {
+  async chat(
+    message: string,
+    history: { role: string; content: string }[] = [],
+  ) {
     try {
-      const response = await this.hf.chatCompletion({
-        model: this.MODEL,
-        messages: [
-          { role: 'system', content: 'You are a helpful study assistant named PlannerBot. Help with studying, tips, motivation.' },
-          { role: 'user', content: message }
-        ],
-        max_tokens: 500,
-        temperature: 0.7,
-      });
-
-      const reply = response.choices?.[0]?.message?.content || 'I could not generate a response.';
-      return { reply };
+      const cleanMessage = this.sanitizeMessage(message);
+      const messages = [
+        {
+          role: "system",
+          content: `You are PlannerBot, a knowledgeable and friendly AI study assistant. Help students with study techniques, exam prep, time management, motivation, and subject-specific advice. Give clear, detailed answers with bullet points or numbered steps.`,
+        },
+        ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content: cleanMessage },
+      ];
+      const reply = await this.callAI(messages, 1024, 0.7);
+      return { reply: reply || "I could not generate a response." };
     } catch (error: any) {
-      console.error('HF Error:', error?.message || error);
+      console.error("AI Error:", error?.message || error);
       return { reply: this.getBuiltInResponse(message) };
     }
   }
 
-  private getBuiltInResponse(message: string): string {
-    const lower = message.toLowerCase();
-    if (lower.includes('tip') || lower.includes('study')) {
-      return 'Here are study tips:\n• Pomodoro: 25 min study, 5 min break\n• Active Recall: test yourself\n• Spaced Repetition: review at intervals';
-    }
-    return 'I can help with study tips, exam prep, and time management. What do you need?';
+  private sanitizeMessage(message: string): string {
+    let clean = String(message || "").trim();
+    const patterns = [
+      /image\.png/gi, /image\.jpg/gi, /image\.jpeg/gi, /image\.gif/gi,
+      /\.png/gi, /\.jpg/gi, /\.jpeg/gi, /\.gif/gi,
+      /screenshot/gi, /data:image/gi, /base64/gi,
+    ];
+    for (const p of patterns) clean = clean.replace(p, "");
+    return clean.trim() || "Hello";
   }
 
+  private getBuiltInResponse(message: string): string {
+    const lower = message.toLowerCase();
+    if (lower.includes("pomodoro") || lower.includes("timer"))
+      return "**Pomodoro Technique:**\n1. Study 25 min\n2. Break 5 min\n3. After 4 rounds, 15-30 min break";
+    if (lower.includes("memory") || lower.includes("memorize"))
+      return "**Memory Tips:**\n• Spaced Repetition\n• Active Recall\n• Teach Others\n• Mind Maps";
+    if (lower.includes("exam") || lower.includes("test"))
+      return "**Exam Tips:**\n1. Start 1 week before\n2. Practice past papers\n3. Focus on understanding\n4. Get enough sleep";
+    if (lower.includes("motivat") || lower.includes("lazy"))
+      return "**Staying Motivated:**\n• Set small goals\n• Reward yourself\n• Study with friends\n• Take regular breaks";
+    if (lower.includes("focus") || lower.includes("concentrat"))
+      return "**Improving Focus:**\n1. Put phone away\n2. Use website blockers\n3. Study in quiet space\n4. Break every 25-45 min";
+    if (lower.includes("stress") || lower.includes("overwhelm"))
+      return "**Managing Stress:**\n1. Break into chunks\n2. Deep breathing\n3. Exercise\n4. Get 7-8 hours sleep";
+    if (lower.includes("math") || lower.includes("calculus"))
+      return "**Math Tips:**\n1. Understand formulas\n2. Practice lots of problems\n3. Work step by step\n4. Use Khan Academy";
+    if (lower.includes("science") || lower.includes("physics") || lower.includes("chemistry"))
+      return "**Science Tips:**\n• Draw diagrams\n• Real-world examples\n• Flashcards for formulas\n• Watch Crash Course videos";
+    return "I can help with:\n• Study tips\n• Exam preparation\n• Memory improvement\n• Time management\n• Motivation and focus\n\nWhat would you like to know?";
+  }
+
+  /**
+   * Generates a study plan using user-defined time windows.
+   *
+   * Input:
+   *   subjects          – [{ name, chapters[] }]
+   *   timeWindows       – [{ startTime: "HH:MM", endTime: "HH:MM" }]  (ordered)
+   *   startDate / endDate – "YYYY-MM-DD"
+   *
+   * Algorithm:
+   *   1. Parse time windows → sorted list of (startMin, endMin, durationMin)
+   *   2. numDays = endDate − startDate + 1
+   *   3. Chapter assignment per day:
+   *      - If chapters ≥ days  → round-robin (multiple chapters per day)
+   *      - If chapters < days  → cycle chapters so EVERY day has at least one
+   *   4. Per day: calculate each chapter's equal time slice.
+   *   5. Pack study tasks + 5-min breaks into windows sequentially.
+   *      - If a task doesn't fit in the remaining window, move to the next window.
+   *      - Breaks are skipped if there is no room (window boundary = natural break).
+   */
   private generateSimplePlan(input: any) {
-    const tasks = [];
-    const startDate = new Date(input.startDate);
-    const endDate = new Date(input.endDate);
-    const numDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-    const dailyMinutes = input.dailyAvailableMinutes || 120;
-    
-    // Time slot mapping
-    const slotTimes: Record<string, number> = {
-      early_morning: 6,
-      morning: 9,
-      afternoon: 13,
-      evening: 17,
-      night: 20,
+    // ── Parse time windows ────────────────────────────────────────
+    interface Window {
+      startMin: number;
+      endMin: number;
+      durationMin: number;
+    }
+
+    const rawWindows: { startTime: string; endTime: string }[] =
+      input.timeWindows || [];
+
+    const fmt = (min: number) => {
+      const h = Math.floor(min / 60) % 24;
+      const m = min % 60;
+      return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
     };
 
-    const freeTimeSlots = input.freeTimeSlots || ['morning'];
-    const timeSlotDurations = input.timeSlotDurations || [];
+    const parseMin = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
 
-    // Create tasks for each day
-    for (let day = 0; day < numDays; day++) {
-      const currentDate = new Date(startDate);
-      currentDate.setDate(currentDate.getDate() + day);
-      const dateStr = currentDate.toISOString().split('T')[0];
+    // Build and sort windows; discard zero-duration or invalid ones
+    let windows: Window[] = rawWindows
+      .map((w) => {
+        const startMin = parseMin(w.startTime);
+        const endMin = parseMin(w.endTime);
+        return { startMin, endMin, durationMin: endMin - startMin };
+      })
+      .filter((w) => w.durationMin > 0)
+      .sort((a, b) => a.startMin - b.startMin);
 
-      // Get chapters for this day (rotate through subjects)
-      const allChapters: any[] = [];
-      for (const subject of input.subjects || []) {
-        for (const chapter of subject.chapters || []) {
-          allChapters.push({ ...chapter, subjectName: subject.name });
-        }
-      }
+    // Fallback if no windows provided
+    if (windows.length === 0) {
+      const start = parseMin(input.startTime || "09:00");
+      const dur = Math.max(30, input.dailyAvailableMinutes || 60);
+      windows = [{ startMin: start, endMin: start + dur, durationMin: dur }];
+    }
 
-      // Pick chapters for this day
-      const chaptersForDay = allChapters.filter((_, i) => i % numDays === day || allChapters.length <= numDays);
-      
-      let hour = 9;
-      let minutesRemaining = dailyMinutes;
+    const dailyMinutes = windows.reduce((s, w) => s + w.durationMin, 0);
 
-      for (const chapter of chaptersForDay) {
-        if (minutesRemaining <= 0) break;
+    // ── Date range ────────────────────────────────────────────────
+    const startDate = new Date(input.startDate);
+    const endDate = new Date(input.endDate);
+    const numDays = Math.max(
+      1,
+      Math.ceil(
+        (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+      ) + 1,
+    );
 
-        // Get time slot for this hour
-        const slot = freeTimeSlots.find(s => {
-          const slotHour = slotTimes[s] || 9;
-          return hour >= slotHour && hour < slotHour + 4;
-        }) || freeTimeSlots[0] || 'morning';
-
-        const slotDuration = timeSlotDurations.find((t: any) => t.slot === slot);
-        const sessionMinutes = Math.min(slotDuration ? slotDuration.minutes : 45, minutesRemaining, 60);
-        
-        const endHour = hour + Math.floor(sessionMinutes / 60);
-        const endMinute = sessionMinutes % 60;
-
-        tasks.push({
-          title: `Study ${chapter.title || chapter.name || 'Chapter'}`,
-          description: `Review ${chapter.title || chapter.name} from ${chapter.subjectName}`,
-          subjectName: chapter.subjectName,
-          chapterName: chapter.title || chapter.name,
-          plannedMinutes: sessionMinutes,
-          difficulty: chapter.difficulty || 'medium',
-          priority: 5,
-          scheduledDate: dateStr,
-          startTime: `${hour.toString().padStart(2, '0')}:00`,
-          endTime: `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`,
-          timeSlot: `${hour > 12 ? hour - 12 : hour}:00 ${hour >= 12 ? 'PM' : 'AM'} - ${endHour > 12 ? endHour - 12 : endHour}:${endMinute.toString().padStart(2, '0')} ${endHour >= 12 ? 'PM' : 'AM'}`,
+    // ── Collect all chapters ──────────────────────────────────────
+    const allChapters: { subjectName: string; name: string; difficulty: string }[] = [];
+    for (const subject of input.subjects || []) {
+      for (const chapter of subject.chapters || []) {
+        allChapters.push({
+          subjectName: subject.name,
+          name: chapter.name || chapter.title || "Chapter",
+          difficulty: chapter.difficulty || "medium",
         });
+      }
+    }
 
-        // Add break
-        if (minutesRemaining > sessionMinutes + 10) {
-          const breakStart = endHour;
-          const breakEnd = endHour + Math.floor((endMinute + 10) / 60);
-          const breakEndMin = (endMinute + 10) % 60;
-          
+    if (allChapters.length === 0) {
+      return {
+        totalHours: 0,
+        tasks: [],
+        insights: { strengths: [], areasToFocus: [], tips: [] },
+      };
+    }
+
+    const numChapters = allChapters.length;
+
+    // ── Assign chapters to each day ───────────────────────────────
+    //
+    // Strategy:
+    //   • More chapters than days  → round-robin (pack multiple per day)
+    //   • Fewer chapters than days → cycle so every day has exactly one
+    //
+    const chaptersPerDay: typeof allChapters[] = Array.from(
+      { length: numDays },
+      () => [],
+    );
+
+    if (numChapters >= numDays) {
+      // Round-robin: distribute all chapters across days
+      allChapters.forEach((ch, i) => chaptersPerDay[i % numDays].push(ch));
+    } else {
+      // Cycle: assign chapter[day % numChapters] so every day has work
+      for (let d = 0; d < numDays; d++) {
+        chaptersPerDay[d].push(allChapters[d % numChapters]);
+      }
+    }
+
+    // ── Build tasks day by day ────────────────────────────────────
+    const tasks: any[] = [];
+
+    for (let day = 0; day < numDays; day++) {
+      const current = new Date(startDate);
+      current.setDate(current.getDate() + day);
+      const yyyy = current.getFullYear();
+      const mm = String(current.getMonth() + 1).padStart(2, "0");
+      const dd = String(current.getDate()).padStart(2, "0");
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+
+      const chapters = chaptersPerDay[day];
+      if (chapters.length === 0) continue;
+
+      // Time per chapter (equal split, minus breaks)
+      const breakCount = chapters.length > 1 ? chapters.length - 1 : 0;
+      const studyBudget = Math.max(1, dailyMinutes - breakCount * 5);
+      const minsPerChapter = Math.max(1, Math.floor(studyBudget / chapters.length));
+
+      // Build atomic task queue: [study, break, study, break, ...]
+      const taskQueue: { type: "study" | "break"; chapter?: typeof allChapters[0]; minutes: number }[] = [];
+      chapters.forEach((ch, ci) => {
+        taskQueue.push({ type: "study", chapter: ch, minutes: minsPerChapter });
+        if (ci < chapters.length - 1) {
+          taskQueue.push({ type: "break", minutes: 5 });
+        }
+      });
+
+      // ── Pack task queue into windows ──────────────────────────
+      //
+      // Rules:
+      //   • Each task is atomic: if it doesn't fit in remaining window, move to next.
+      //   • If no remaining windows, stop (don't create tasks beyond time budget).
+      //   • Breaks that don't fit are skipped (the window gap is a natural break).
+      //
+      let wi = 0;
+      let cursor = windows[0].startMin;
+
+      const windowRemaining = () =>
+        wi < windows.length ? windows[wi].endMin - cursor : 0;
+
+      const advanceWindow = () => {
+        wi++;
+        if (wi < windows.length) {
+          cursor = windows[wi].startMin;
+        }
+      };
+
+      for (const task of taskQueue) {
+        // Skip if out of windows
+        if (wi >= windows.length) break;
+
+        // If current window is exhausted, advance
+        while (wi < windows.length && windowRemaining() <= 0) {
+          advanceWindow();
+        }
+        if (wi >= windows.length) break;
+
+        if (task.type === "break") {
+          // Skip break if not enough room — gap between windows IS the break
+          if (windowRemaining() < task.minutes) continue;
           tasks.push({
-            title: 'Break',
-            description: 'Take a 10-minute break',
-            plannedMinutes: 10,
-            difficulty: '',
+            title: "Break",
+            description: "Take a short break",
+            plannedMinutes: task.minutes,
+            difficulty: "",
             priority: 0,
             scheduledDate: dateStr,
-            startTime: `${breakStart.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`,
-            endTime: `${breakEnd.toString().padStart(2, '0')}:${breakEndMin.toString().padStart(2, '0')}`,
-            timeSlot: '',
+            startTime: fmt(cursor),
+            endTime: fmt(cursor + task.minutes),
+            timeSlot: "break",
           });
-          hour = breakEnd;
-          minutesRemaining -= sessionMinutes + 10;
+          cursor += task.minutes;
         } else {
-          hour = endHour;
-          minutesRemaining -= sessionMinutes;
+          // Study task — if it doesn't fit in this window, try next window
+          if (windowRemaining() < task.minutes) {
+            advanceWindow();
+            if (wi >= windows.length) break;
+          }
+
+          const avail = Math.min(task.minutes, windowRemaining());
+          if (avail <= 0) continue;
+
+          tasks.push({
+            title: `${task.chapter!.subjectName} - ${task.chapter!.name}`,
+            description: `Study ${task.chapter!.subjectName}: ${task.chapter!.name}`,
+            subjectName: task.chapter!.subjectName,
+            chapterName: task.chapter!.name,
+            plannedMinutes: avail,
+            difficulty: task.chapter!.difficulty,
+            priority: 5,
+            scheduledDate: dateStr,
+            startTime: fmt(cursor),
+            endTime: fmt(cursor + avail),
+            timeSlot: `${fmt(windows[wi].startMin)}-${fmt(windows[wi].endMin)}`,
+          });
+          cursor += avail;
         }
       }
     }
@@ -227,9 +314,15 @@ Return ONLY JSON:
       totalHours: (dailyMinutes * numDays) / 60,
       tasks,
       insights: {
-        strengths: ['Plan created successfully'],
-        areasToFocus: ['Focus on difficult topics first'],
-        tips: ['Study consistently every day', 'Take breaks between sessions'],
+        strengths: ["Plan fits exactly within your available time windows"],
+        areasToFocus: [
+          "Tackle your most challenging chapters during the time you feel most alert",
+        ],
+        tips: [
+          "The gap between your time windows is your natural break — use it well",
+          "Review yesterday's notes for 5 minutes before starting today",
+          "Consistency across all days matters more than long single sessions",
+        ],
       },
     };
   }

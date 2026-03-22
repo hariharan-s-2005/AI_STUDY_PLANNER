@@ -8,7 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { subjectsAPI, studyPlanAPI } from '@/lib/api';
-import { ArrowLeft, ArrowRight, Sparkles, Calendar, Clock, BookOpen, Check, Loader2, Plus, Minus } from 'lucide-react';
+import {
+  ArrowLeft, ArrowRight, Sparkles, Calendar, Clock, BookOpen,
+  Check, Loader2, Plus, Trash2,
+} from 'lucide-react';
 import { format, addDays, addWeeks, addMonths } from 'date-fns';
 
 interface Subject {
@@ -18,14 +21,35 @@ interface Subject {
   chapters: any[];
 }
 
-interface TimeSlot {
+interface TimeWindow {
   id: string;
-  label: string;
-  hours: number;
-  minutes: number;
+  startTime: string;
+  endTime: string;
 }
 
 type PlanDuration = 'daily' | 'weekly' | 'monthly';
+
+// Parse "HH:MM" → total minutes from midnight
+const toMin = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+// Calculate duration in minutes for a window (0 if invalid)
+const windowDuration = (w: TimeWindow) => Math.max(0, toMin(w.endTime) - toMin(w.startTime));
+
+// Format minutes → "Xh Ym" display string
+const fmtDur = (min: number) => {
+  if (min <= 0) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+};
+
+let idCounter = 0;
+const newId = () => String(++idCounter);
 
 export default function AiPlannerPage() {
   const router = useRouter();
@@ -33,114 +57,142 @@ export default function AiPlannerPage() {
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  
+  const [error, setError] = useState('');
+
+  // Step 1 — Subjects
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+
+  // Step 2 — Time windows
+  const [timeWindows, setTimeWindows] = useState<TimeWindow[]>([
+    { id: newId(), startTime: '09:00', endTime: '10:00' },
+  ]);
+
+  // Step 3 — Plan duration
   const [duration, setDuration] = useState<PlanDuration>('weekly');
   const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(addWeeks(new Date(), 1), 'yyyy-MM-dd'));
-  const [difficulty, setDifficulty] = useState('medium');
 
-  useEffect(() => {
-    fetchSubjects();
-  }, []);
+  // Derived
+  const totalDailyMinutes = timeWindows.reduce((s, w) => s + windowDuration(w), 0);
+
+  const selectedChapterCount = subjects
+    .filter(s => selectedSubjects.includes(s._id))
+    .reduce((sum, s) => sum + (s.chapters?.length || 0), 0);
+
+  const breakCount = selectedChapterCount > 1 ? selectedChapterCount - 1 : 0;
+  const studyBudget = Math.max(0, totalDailyMinutes - breakCount * 5);
+  const minsPerChapter = selectedChapterCount > 0
+    ? Math.floor(studyBudget / selectedChapterCount)
+    : 0;
+
+  useEffect(() => { fetchSubjects(); }, []);
 
   const fetchSubjects = async () => {
     try {
       const res = await subjectsAPI.getAll();
       setSubjects(res.data || []);
-    } catch (error) {
-      console.error('Error fetching subjects:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
   };
 
   const handleDurationChange = (d: PlanDuration) => {
     const start = new Date(startDate);
     let end = startDate;
     switch (d) {
-      case 'daily': end = format(addDays(start, 1), 'yyyy-MM-dd'); break;
-      case 'weekly': end = format(addWeeks(start, 1), 'yyyy-MM-dd'); break;
+      case 'daily':   end = format(addDays(start, 0), 'yyyy-MM-dd'); break;
+      case 'weekly':  end = format(addWeeks(start, 1), 'yyyy-MM-dd'); break;
       case 'monthly': end = format(addMonths(start, 1), 'yyyy-MM-dd'); break;
     }
-    setDuration(d);
-    setEndDate(end);
+    setDuration(d); setEndDate(end);
   };
 
   const handleStartDateChange = (newDate: string) => {
     const start = new Date(newDate);
     let end = newDate;
     switch (duration) {
-      case 'daily': end = format(addDays(start, 1), 'yyyy-MM-dd'); break;
-      case 'weekly': end = format(addWeeks(start, 1), 'yyyy-MM-dd'); break;
+      case 'daily':   end = format(addDays(start, 0), 'yyyy-MM-dd'); break;
+      case 'weekly':  end = format(addWeeks(start, 1), 'yyyy-MM-dd'); break;
       case 'monthly': end = format(addMonths(start, 1), 'yyyy-MM-dd'); break;
     }
-    setStartDate(newDate);
-    setEndDate(end);
+    setStartDate(newDate); setEndDate(end);
   };
 
   const toggleSubject = (id: string) => {
-    setSelectedSubjects(prev => 
-      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    setSelectedSubjects(prev =>
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id],
     );
   };
 
-  const addTimeSlot = (slotId: string, label: string) => {
-    if (timeSlots.find(s => s.id === slotId)) return;
-    setTimeSlots([...timeSlots, { id: slotId, label, hours: 1, minutes: 0 }]);
+  const addWindow = () => {
+    // Default: 30 min after the last window's end time
+    const last = timeWindows[timeWindows.length - 1];
+    const lastEnd = last ? toMin(last.endTime) : toMin('09:00');
+    const newStart = lastEnd + 30; // 30-min gap
+    const newEnd = newStart + 60;  // 1h default
+    const toStr = (min: number) => {
+      const h = Math.floor(min / 60) % 24;
+      const m = min % 60;
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    };
+    setTimeWindows(prev => [
+      ...prev,
+      { id: newId(), startTime: toStr(newStart), endTime: toStr(newEnd) },
+    ]);
   };
 
-  const removeTimeSlot = (slotId: string) => {
-    setTimeSlots(timeSlots.filter(s => s.id !== slotId));
+  const updateWindow = (id: string, field: 'startTime' | 'endTime', value: string) => {
+    setTimeWindows(prev => prev.map(w => w.id === id ? { ...w, [field]: value } : w));
   };
 
-  const updateTimeSlotDuration = (slotId: string, hours: number, minutes: number) => {
-    setTimeSlots(timeSlots.map(s => 
-      s.id === slotId ? { ...s, hours: Math.max(0, Math.min(4, hours)), minutes } : s
-    ));
+  const removeWindow = (id: string) => {
+    setTimeWindows(prev => prev.filter(w => w.id !== id));
   };
-
-  const totalDailyMinutes = timeSlots.reduce((sum, s) => sum + (s.hours * 60) + s.minutes, 0);
 
   const generatePlan = async () => {
+    const validWindows = timeWindows.filter(w => windowDuration(w) > 0);
+    if (validWindows.length === 0) {
+      setError('Please add at least one valid time window (end time must be after start time).');
+      return;
+    }
+    if (totalDailyMinutes < 5) {
+      setError('Please set at least 5 minutes of study time.');
+      return;
+    }
+    setError('');
     setGenerating(true);
     try {
       await studyPlanAPI.generate({
         subjectIds: selectedSubjects,
         dailyAvailableMinutes: totalDailyMinutes,
+<<<<<<< HEAD
         //freeTimeSlots: timeSlots.map(s => s.id),
         // timeSlotDurations: timeSlots.map(s => ({
         //   slot: s.id,
         //   minutes: (s.hours * 60) + s.minutes
         // })),
+=======
+        timeWindows: validWindows.map(w => ({ startTime: w.startTime, endTime: w.endTime })),
+>>>>>>> work
         startDate,
         endDate,
-        difficultyLevel: difficulty,
+        difficultyLevel: 'medium',
         planDuration: duration,
-      });
+      } as any);
       router.push('/tasks');
-    } catch (error) {
-      console.error('Error generating plan:', error);
+    } catch (err: any) {
+      console.error('Error generating plan:', err);
+      setError(err?.response?.data?.message || 'Failed to generate plan. Please try again.');
       setGenerating(false);
     }
   };
 
   const steps = [
     { num: 1, title: 'Subjects', icon: BookOpen },
-    { num: 2, title: 'Free Time', icon: Clock },
+    { num: 2, title: 'Study Time', icon: Clock },
     { num: 3, title: 'Plan Type', icon: Calendar },
   ];
 
-  const timeSlotOptions = [
-    { id: 'early_morning', label: 'Early Morning', desc: '5 AM - 8 AM', icon: '🌅' },
-    { id: 'morning', label: 'Morning', desc: '8 AM - 12 PM', icon: '☀️' },
-    { id: 'afternoon', label: 'Afternoon', desc: '12 PM - 4 PM', icon: '🌤️' },
-    { id: 'evening', label: 'Evening', desc: '4 PM - 8 PM', icon: '🌆' },
-    { id: 'night', label: 'Night', desc: '8 PM - 11 PM', icon: '🌙' },
-  ];
-
-  const progressPercent = ((step - 1) / steps.length) * 100;
+  const canProceedStep2 = timeWindows.some(w => windowDuration(w) > 0) && totalDailyMinutes >= 5;
 
   if (loading) {
     return (
@@ -155,12 +207,16 @@ export default function AiPlannerPage() {
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto space-y-6">
+
+        {/* Header */}
         <div className="text-center">
           <div className="inline-flex items-center justify-center p-3 bg-primary/10 rounded-full mb-4">
             <Sparkles className="h-8 w-8 text-primary" />
           </div>
           <h1 className="text-3xl font-bold">AI Study Plan Generator</h1>
-          <p className="text-muted-foreground mt-2">Create a personalized study plan powered by AI</p>
+          <p className="text-muted-foreground mt-2">
+            Create a personalised study plan based on your subjects and available time
+          </p>
         </div>
 
         {subjects.length === 0 ? (
@@ -168,22 +224,20 @@ export default function AiPlannerPage() {
             <CardContent className="py-12 text-center">
               <BookOpen className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium mb-2">No subjects found</h3>
-              <p className="text-muted-foreground mb-4">Add subjects with chapters first to generate a study plan</p>
+              <p className="text-muted-foreground mb-4">Add subjects with chapters first</p>
               <Button onClick={() => router.push('/subjects')}>
-                <Plus className="mr-2 h-5 w-5" />
-                Add Subjects
+                <Plus className="mr-2 h-5 w-5" /> Add Subjects
               </Button>
             </CardContent>
           </Card>
         ) : (
           <>
-            <div className="flex items-center justify-between mb-6">
+            {/* Step indicator */}
+            <div className="flex items-center justify-between mb-2">
               {steps.map((s, i) => (
                 <div key={s.num} className="flex items-center">
                   <div className={`flex items-center gap-2 ${step >= s.num ? 'text-primary' : 'text-muted-foreground'}`}>
-                    <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                      step >= s.num ? 'bg-primary text-primary-foreground' : 'bg-muted'
-                    }`}>
+                    <div className={`h-10 w-10 rounded-full flex items-center justify-center ${step >= s.num ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                       {step > s.num ? <Check className="h-5 w-5" /> : <s.icon className="h-5 w-5" />}
                     </div>
                     <span className="font-medium hidden sm:block">{s.title}</span>
@@ -195,23 +249,25 @@ export default function AiPlannerPage() {
               ))}
             </div>
 
-            <Progress value={progressPercent} className="h-2" />
+            <Progress value={((step - 1) / steps.length) * 100} className="h-2" />
 
             <Card>
               <CardHeader>
                 <CardTitle>
                   {step === 1 && 'Which subjects do you want to study?'}
-                  {step === 2 && 'When can you study?'}
+                  {step === 2 && 'When and how long can you study each day?'}
                   {step === 3 && 'Choose your plan duration'}
                 </CardTitle>
                 <CardDescription>
-                  {step === 1 && 'Select the subjects you want to include'}
-                  {step === 2 && 'Add time slots and set how long you can study during each'}
-                  {step === 3 && 'Daily, weekly, or monthly plan?'}
+                  {step === 1 && 'Select the subjects (with chapters) to include'}
+                  {step === 2 && 'Add one or more time windows for each day'}
+                  {step === 3 && 'Pick how many days your plan should cover'}
                 </CardDescription>
               </CardHeader>
+
               <CardContent className="space-y-6">
-                {/* Step 1: Subjects */}
+
+                {/* ── Step 1: Subjects ── */}
                 {step === 1 && (
                   <div className="grid gap-3">
                     {subjects.map((subject) => {
@@ -223,10 +279,8 @@ export default function AiPlannerPage() {
                           onClick={() => hasChapters && toggleSubject(subject._id)}
                           disabled={!hasChapters}
                           className={`flex items-center justify-between p-4 rounded-lg border transition-all ${
-                            !hasChapters 
-                              ? 'opacity-50 cursor-not-allowed' 
-                              : isSelected
-                              ? 'border-primary bg-primary/5'
+                            !hasChapters ? 'opacity-50 cursor-not-allowed'
+                              : isSelected ? 'border-primary bg-primary/5'
                               : 'hover:border-primary/50'
                           }`}
                         >
@@ -235,13 +289,13 @@ export default function AiPlannerPage() {
                             <div className="text-left">
                               <p className="font-medium">{subject.name}</p>
                               <p className="text-sm text-muted-foreground">
-                                {hasChapters ? `${subject.chapters.length} chapters` : 'No chapters'}
+                                {hasChapters
+                                  ? `${subject.chapters.length} chapter${subject.chapters.length > 1 ? 's' : ''}`
+                                  : 'No chapters — add chapters first'}
                               </p>
                             </div>
                           </div>
-                          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center ${
-                            isSelected ? 'border-primary bg-primary text-white' : 'border-muted-foreground'
-                          }`}>
+                          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-primary bg-primary text-white' : 'border-muted-foreground'}`}>
                             {isSelected && <Check className="h-4 w-4" />}
                           </div>
                         </button>
@@ -250,120 +304,118 @@ export default function AiPlannerPage() {
                   </div>
                 )}
 
-                {/* Step 2: Free Time with Duration */}
+                {/* ── Step 2: Time Windows ── */}
                 {step === 2 && (
-                  <div className="space-y-6">
+                  <div className="space-y-5">
                     <p className="text-sm text-muted-foreground">
-                      Click to add time slots, then set how many hours you can study during each slot.
+                      Add the time slots when you can study. You can add multiple separate slots per day
+                      (e.g. <strong>6:00–6:30</strong> and <strong>8:30–9:00</strong>).
                     </p>
 
-                    {/* Available time slots */}
-                    <div className="grid gap-2">
-                      {timeSlotOptions.map((slot) => {
-                        const isSelected = timeSlots.find(s => s.id === slot.id);
+                    <div className="space-y-3">
+                      {timeWindows.map((w, idx) => {
+                        const dur = windowDuration(w);
+                        const isValid = dur > 0;
                         return (
-                          <button
-                            key={slot.id}
-                            onClick={() => isSelected ? removeTimeSlot(slot.id) : addTimeSlot(slot.id, slot.label)}
-                            className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                              isSelected ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
-                            }`}
+                          <div
+                            key={w.id}
+                            className={`flex items-center gap-3 p-3 rounded-lg border ${isValid ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'}`}
                           >
-                            <div className="flex items-center gap-3">
-                              <span className="text-xl">{slot.icon}</span>
-                              <div className="text-left">
-                                <p className="font-medium">{slot.label}</p>
-                                <p className="text-xs text-muted-foreground">{slot.desc}</p>
+                            <span className="text-sm font-medium text-muted-foreground w-16 shrink-0">
+                              Slot {idx + 1}
+                            </span>
+
+                            <div className="flex items-center gap-2 flex-1 flex-wrap">
+                              <div className="flex items-center gap-1.5">
+                                <label className="text-xs text-muted-foreground">From</label>
+                                <Input
+                                  type="time"
+                                  className="w-28 h-8 text-sm"
+                                  value={w.startTime}
+                                  onChange={(e) => updateWindow(w.id, 'startTime', e.target.value)}
+                                />
                               </div>
+                              <div className="flex items-center gap-1.5">
+                                <label className="text-xs text-muted-foreground">To</label>
+                                <Input
+                                  type="time"
+                                  className="w-28 h-8 text-sm"
+                                  value={w.endTime}
+                                  onChange={(e) => updateWindow(w.id, 'endTime', e.target.value)}
+                                />
+                              </div>
+                              {isValid && (
+                                <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                                  {fmtDur(dur)}
+                                </span>
+                              )}
+                              {!isValid && (
+                                <span className="text-xs text-destructive">
+                                  End must be after start
+                                </span>
+                              )}
                             </div>
-                            <div className={`h-5 w-5 rounded border-2 flex items-center justify-center ${
-                              isSelected ? 'border-primary bg-primary text-white' : 'border-muted-foreground'
-                            }`}>
-                              {isSelected && <Check className="h-3 w-3" />}
-                            </div>
-                          </button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                              onClick={() => removeWindow(w.id)}
+                              disabled={timeWindows.length <= 1}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         );
                       })}
                     </div>
 
-                    {/* Duration inputs for selected slots */}
-                    {timeSlots.length > 0 && (
-                      <div className="space-y-3">
-                        <label className="text-sm font-medium">How long can you study during each slot?</label>
-                        {timeSlots.map((slot) => (
-                          <div key={slot.id} className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-                            <span className="w-28 font-medium text-sm">{slot.label}</span>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateTimeSlotDuration(slot.id, slot.hours - 1, slot.minutes)}
-                                disabled={slot.hours <= 0}
-                              >
-                                <Minus className="h-3 w-3" />
-                              </Button>
-                              <span className="w-16 text-center font-mono">
-                                {slot.hours}h {slot.minutes}m
-                              </span>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateTimeSlotDuration(slot.id, slot.hours + 1, slot.minutes)}
-                                disabled={slot.hours >= 4}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <Button variant="outline" size="sm" onClick={addWindow} className="w-full gap-2">
+                      <Plus className="h-4 w-4" />
+                      Add another time slot
+                    </Button>
 
-                    {/* Total */}
+                    {/* Summary */}
                     {totalDailyMinutes > 0 && (
-                      <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
-                        <p className="text-sm text-muted-foreground">Total daily study time</p>
-                        <p className="text-2xl font-bold">
-                          {Math.floor(totalDailyMinutes / 60)}h {totalDailyMinutes % 60}m
-                        </p>
+                      <div className="p-4 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Total daily study time</span>
+                          <span className="text-xl font-bold">{fmtDur(totalDailyMinutes)}</span>
+                        </div>
+                        {timeWindows.length > 1 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Time slots</span>
+                            <span className="font-medium">{timeWindows.filter(w => windowDuration(w) > 0).length} windows</span>
+                          </div>
+                        )}
+                        {selectedChapterCount > 0 && minsPerChapter > 0 && (
+                          <div className="border-t border-primary/20 pt-2 mt-2">
+                            <p className="text-xs text-muted-foreground">
+                              {selectedChapterCount} chapters across {selectedSubjects.length} subject{selectedSubjects.length !== 1 ? 's' : ''} →{' '}
+                              <strong>~{minsPerChapter} min per chapter</strong>
+                              {selectedChapterCount > 1 && `, ${selectedChapterCount - 1} × 5-min breaks`}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
-
-                    {/* Difficulty */}
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Difficulty Level</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {['easy', 'medium', 'hard'].map((level) => (
-                          <Button
-                            key={level}
-                            variant={difficulty === level ? 'default' : 'outline'}
-                            onClick={() => setDifficulty(level)}
-                            className="capitalize"
-                          >
-                            {level}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 )}
 
-                {/* Step 3: Duration */}
+                {/* ── Step 3: Plan Duration ── */}
                 {step === 3 && (
                   <div className="space-y-6">
                     <div className="grid gap-4">
                       {[
-                        { value: 'daily', label: 'Daily Plan', desc: '1 day intensive study', icon: '📅' },
-                        { value: 'weekly', label: 'Weekly Plan', desc: '1 week (7 days)', icon: '📆' },
-                        { value: 'monthly', label: 'Monthly Plan', desc: '1 month (30 days)', icon: '🗓️' },
+                        { value: 'daily',   label: 'Daily Plan',   desc: 'One session covering all chapters in a single day', icon: '📅' },
+                        { value: 'weekly',  label: 'Weekly Plan',  desc: 'Spread study across 7 days (a chapter per day)', icon: '📆' },
+                        { value: 'monthly', label: 'Monthly Plan', desc: 'Spread study across 30 days', icon: '🗓️' },
                       ].map((option) => (
                         <button
                           key={option.value}
                           onClick={() => handleDurationChange(option.value as PlanDuration)}
                           className={`flex items-center justify-between p-4 rounded-lg border transition-all ${
-                            duration === option.value
-                              ? 'border-primary bg-primary/5'
-                              : 'hover:border-primary/50'
+                            duration === option.value ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
                           }`}
                         >
                           <div className="flex items-center gap-3">
@@ -373,11 +425,7 @@ export default function AiPlannerPage() {
                               <p className="text-sm text-muted-foreground">{option.desc}</p>
                             </div>
                           </div>
-                          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center ${
-                            duration === option.value
-                              ? 'border-primary bg-primary text-white'
-                              : 'border-muted-foreground'
-                          }`}>
+                          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center ${duration === option.value ? 'border-primary bg-primary text-white' : 'border-muted-foreground'}`}>
                             {duration === option.value && <Check className="h-4 w-4" />}
                           </div>
                         </button>
@@ -387,11 +435,7 @@ export default function AiPlannerPage() {
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
                         <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Input
-                          type="date"
-                          value={startDate}
-                          onChange={(e) => handleStartDateChange(e.target.value)}
-                        />
+                        <Input type="date" value={startDate} onChange={(e) => handleStartDateChange(e.target.value)} />
                       </div>
                       <div>
                         <label className="text-sm font-medium mb-2 block">End Date</label>
@@ -399,59 +443,81 @@ export default function AiPlannerPage() {
                       </div>
                     </div>
 
+                    {/* Plan summary */}
                     <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
-                      <h4 className="font-medium mb-2">Plan Summary</h4>
-                      <ul className="text-sm space-y-1 text-muted-foreground">
-                        <li>• Type: {duration} plan</li>
-                        <li>• Daily time: {Math.floor(totalDailyMinutes / 60)}h {totalDailyMinutes % 60}m</li>
-                        <li>• Time slots: {timeSlots.map(s => s.label).join(', ') || 'None selected'}</li>
-                        <li>• Subjects: {selectedSubjects.length}</li>
-                        <li>• Total study time: {duration === 'daily' ? totalDailyMinutes : duration === 'weekly' ? totalDailyMinutes * 7 : totalDailyMinutes * 30} minutes</li>
+                      <h4 className="font-medium mb-3">Plan Summary</h4>
+                      <ul className="text-sm space-y-1.5 text-muted-foreground">
+                        <li className="flex justify-between">
+                          <span>Subjects</span>
+                          <span className="font-medium text-foreground">{selectedSubjects.length}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span>Total chapters</span>
+                          <span className="font-medium text-foreground">{selectedChapterCount}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span>Daily study time</span>
+                          <span className="font-medium text-foreground">{fmtDur(totalDailyMinutes)}</span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span>Time windows per day</span>
+                          <span className="font-medium text-foreground">
+                            {timeWindows.filter(w => windowDuration(w) > 0).map(w => `${w.startTime}–${w.endTime}`).join(', ')}
+                          </span>
+                        </li>
+                        <li className="flex justify-between">
+                          <span>Plan type</span>
+                          <span className="font-medium text-foreground capitalize">{duration}</span>
+                        </li>
+                        {minsPerChapter > 0 && (
+                          <li className="flex justify-between border-t border-primary/20 pt-1.5 mt-1">
+                            <span>Time per chapter (per day)</span>
+                            <span className="font-medium text-foreground">~{minsPerChapter} min</span>
+                          </li>
+                        )}
                       </ul>
                     </div>
+
+                    {error && (
+                      <p className="text-sm text-destructive bg-destructive/10 px-4 py-2 rounded-lg">{error}</p>
+                    )}
                   </div>
                 )}
 
-                <div className="flex justify-between pt-4">
+                {/* Navigation */}
+                <div className="flex justify-between pt-4 border-t">
                   <Button
                     variant="outline"
                     onClick={() => setStep(Math.max(1, step - 1))}
                     disabled={step === 1}
                   >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
                   </Button>
-                  
+
                   {step < 3 ? (
-                    <Button 
+                    <Button
                       onClick={() => setStep(step + 1)}
                       disabled={
                         (step === 1 && selectedSubjects.length === 0) ||
-                        (step === 2 && timeSlots.length === 0)
+                        (step === 2 && !canProceedStep2)
                       }
                     >
-                      Next
-                      <ArrowRight className="ml-2 h-4 w-4" />
+                      Next <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   ) : (
-                    <Button 
-                      onClick={generatePlan} 
-                      disabled={generating || selectedSubjects.length === 0}
+                    <Button
+                      onClick={generatePlan}
+                      disabled={generating || selectedSubjects.length === 0 || !canProceedStep2}
                     >
                       {generating ? (
-                        <>
-                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                          Generating...
-                        </>
+                        <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating...</>
                       ) : (
-                        <>
-                          <Sparkles className="mr-2 h-5 w-5" />
-                          Generate Plan
-                        </>
+                        <><Sparkles className="mr-2 h-5 w-5" />Generate Plan</>
                       )}
                     </Button>
                   )}
                 </div>
+
               </CardContent>
             </Card>
           </>

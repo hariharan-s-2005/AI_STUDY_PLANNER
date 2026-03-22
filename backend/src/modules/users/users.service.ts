@@ -1,12 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { User } from '../../schemas/user.schema';
-import { Subject } from '../../schemas/subject.schema';
-import { Task } from '../../schemas/task.schema';
-import { StudySession } from '../../schemas/study-session.schema';
-import { ProgressLog } from '../../schemas/progress-log.schema';
-import { UpdateUserDto, CreateSubjectDto } from './dto/users.dto';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import { User } from "../../schemas/user.schema";
+import { Subject } from "../../schemas/subject.schema";
+import { Task } from "../../schemas/task.schema";
+import { StudySession } from "../../schemas/study-session.schema";
+import { ProgressLog } from "../../schemas/progress-log.schema";
+import { UpdateUserDto, CreateSubjectDto } from "./dto/users.dto";
 
 @Injectable()
 export class UsersService {
@@ -22,7 +22,7 @@ export class UsersService {
     const user = await this.userModel.findById(id);
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException("User not found");
     }
 
     const { password, ...sanitized } = user.toObject();
@@ -30,10 +30,12 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const user = await this.userModel.findByIdAndUpdate(id, updateUserDto, { new: true });
+    const user = await this.userModel.findByIdAndUpdate(id, updateUserDto, {
+      new: true,
+    });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException("User not found");
     }
 
     const { password, ...sanitized } = user.toObject();
@@ -59,10 +61,10 @@ export class UsersService {
     });
 
     if (!subject) {
-      throw new NotFoundException('Subject not found');
+      throw new NotFoundException("Subject not found");
     }
 
-    return { message: 'Subject deleted successfully' };
+    return { message: "Subject deleted successfully" };
   }
 
   async getStats(userId: string) {
@@ -72,18 +74,25 @@ export class UsersService {
     const weekAgo = new Date(today);
     weekAgo.setDate(weekAgo.getDate() - 7);
 
-    const weeklyProgress = await this.progressLogModel.find({
-      userId: new Types.ObjectId(userId),
-      date: { $gte: weekAgo, $lte: today },
-    }).sort({ date: 1 });
+    const weeklyProgress = await this.progressLogModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        date: { $gte: weekAgo, $lte: today },
+      })
+      .sort({ date: 1 });
 
     const totalTasks = await this.taskModel.countDocuments();
-    const completedTasks = await this.taskModel.countDocuments({ status: 'completed' });
+    const completedTasks = await this.taskModel.countDocuments({
+      status: "completed",
+    });
 
-    const recentSessions = await this.sessionModel.find({
-      userId: new Types.ObjectId(userId),
-      startTime: { $gte: weekAgo },
-    }).sort({ startTime: -1 }).limit(10);
+    const recentSessions = await this.sessionModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        startTime: { $gte: weekAgo },
+      })
+      .sort({ startTime: -1 })
+      .limit(10);
 
     return {
       streakCount: user?.streakCount || 0,

@@ -1,9 +1,9 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Types } from "mongoose";
 
 @Schema({ timestamps: true })
 export class StudyPlan extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: Types.ObjectId, ref: "User", required: true })
   userId: Types.ObjectId;
 
   @Prop({ required: true })
@@ -21,7 +21,7 @@ export class StudyPlan extends Document {
   @Prop({ default: 0 })
   totalHours: number;
 
-  @Prop({ default: 'active' })
+  @Prop({ default: "active" })
   status: string;
 
   @Prop({ default: false })

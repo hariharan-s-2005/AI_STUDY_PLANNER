@@ -1,15 +1,15 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Types } from "mongoose";
 
 @Schema({ timestamps: true })
 export class StudySession extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: Types.ObjectId, ref: "User", required: true })
   userId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject' })
+  @Prop({ type: Types.ObjectId, ref: "Subject" })
   subjectId?: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Task' })
+  @Prop({ type: Types.ObjectId, ref: "Task" })
   taskId?: Types.ObjectId;
 
   @Prop({ default: Date.now })

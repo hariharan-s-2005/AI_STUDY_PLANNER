@@ -1,14 +1,17 @@
-import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { StudyPlanController } from './study-plan.controller';
-import { StudyPlanService } from './study-plan.service';
-import { AiModule } from '../ai/ai.module';
-import { StudyPlan, StudyPlanSchema } from '../../schemas/study-plan.schema';
-import { Task, TaskSchema } from '../../schemas/task.schema';
-import { Subject, SubjectSchema } from '../../schemas/subject.schema';
-import { Topic, TopicSchema } from '../../schemas/topic.schema';
-import { User, UserSchema } from '../../schemas/user.schema';
-import { ProgressLog, ProgressLogSchema } from '../../schemas/progress-log.schema';
+import { Module } from "@nestjs/common";
+import { MongooseModule } from "@nestjs/mongoose";
+import { StudyPlanController } from "./study-plan.controller";
+import { StudyPlanService } from "./study-plan.service";
+import { AiModule } from "../ai/ai.module";
+import { StudyPlan, StudyPlanSchema } from "../../schemas/study-plan.schema";
+import { Task, TaskSchema } from "../../schemas/task.schema";
+import { Subject, SubjectSchema } from "../../schemas/subject.schema";
+import { Topic, TopicSchema } from "../../schemas/topic.schema";
+import { User, UserSchema } from "../../schemas/user.schema";
+import {
+  ProgressLog,
+  ProgressLogSchema,
+} from "../../schemas/progress-log.schema";
 
 @Module({
   imports: [

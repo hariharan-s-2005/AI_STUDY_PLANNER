@@ -1,31 +1,69 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DashboardLayout from '@/components/layout/dashboard-layout';
+import { useAuthStore } from '@/store';
+import { usersAPI } from '@/lib/api';
+import { useTheme } from 'next-themes';
 import {
   User,
-  Bell,
   Shield,
   Palette,
   Globe,
   Save,
   Moon,
   Sun,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
-  const [timezone, setTimezone] = useState('America/New_York');
+  const { user, updateUser } = useAuthStore();
+  const { theme, setTheme } = useTheme();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [timezone, setTimezone] = useState('UTC');
   const [dailyGoal, setDailyGoal] = useState(180);
-  const [notifications, setNotifications] = useState({
-    email: true,
-    push: true,
-    reminders: true,
-    achievements: true,
-  });
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setMounted(true);
+    if (user) {
+      setFirstName(user.firstName || '');
+      setLastName(user.lastName || '');
+      setEmail(user.email || '');
+    }
+  }, [user]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    setError('');
+    try {
+      const res = await usersAPI.updateProfile({
+        firstName,
+        lastName,
+        email,
+        timezone,
+        dailyGoal: Number(dailyGoal),
+      });
+      updateUser(res.data);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -34,6 +72,18 @@ export default function SettingsPage() {
           <h1 className="text-3xl font-bold">Settings</h1>
           <p className="text-muted-foreground">Manage your account and preferences</p>
         </div>
+
+        {error && (
+          <div className="p-3 rounded-lg border border-red-300 bg-red-50 text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        {saved && (
+          <div className="p-3 rounded-lg border border-green-300 bg-green-50 text-green-700 text-sm">
+            Settings saved successfully!
+          </div>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
@@ -48,16 +98,29 @@ export default function SettingsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">First Name</label>
-                  <Input defaultValue="John" />
+                  <Input
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="John"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Last Name</label>
-                  <Input defaultValue="Doe" />
+                  <Input
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Doe"
+                  />
                 </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Email</label>
-                <Input type="email" defaultValue="john@example.com" />
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Timezone</label>
@@ -66,106 +129,27 @@ export default function SettingsPage() {
                   value={timezone}
                   onChange={(e) => setTimezone(e.target.value)}
                 >
+                  <option value="UTC">UTC</option>
                   <option value="America/New_York">Eastern Time (ET)</option>
                   <option value="America/Chicago">Central Time (CT)</option>
                   <option value="America/Denver">Mountain Time (MT)</option>
                   <option value="America/Los_Angeles">Pacific Time (PT)</option>
                   <option value="Europe/London">London (GMT)</option>
                   <option value="Europe/Paris">Paris (CET)</option>
+                  <option value="Asia/Kolkata">India (IST)</option>
+                  <option value="Asia/Tokyo">Tokyo (JST)</option>
                 </select>
               </div>
-              <Button>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : saved ? (
+                  <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                {saved ? 'Saved!' : 'Save Changes'}
               </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Bell className="h-5 w-5" />
-                <CardTitle>Notifications</CardTitle>
-              </div>
-              <CardDescription>Configure your notification preferences</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Email Notifications</p>
-                  <p className="text-sm text-muted-foreground">Receive updates via email</p>
-                </div>
-                <button
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    notifications.email ? 'bg-primary' : 'bg-gray-200'
-                  }`}
-                  onClick={() => setNotifications({ ...notifications, email: !notifications.email })}
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                      notifications.email ? 'translate-x-5' : ''
-                    }`}
-                  />
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Push Notifications</p>
-                  <p className="text-sm text-muted-foreground">Receive push notifications</p>
-                </div>
-                <button
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    notifications.push ? 'bg-primary' : 'bg-gray-200'
-                  }`}
-                  onClick={() => setNotifications({ ...notifications, push: !notifications.push })}
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                      notifications.push ? 'translate-x-5' : ''
-                    }`}
-                  />
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Study Reminders</p>
-                  <p className="text-sm text-muted-foreground">Get reminded about your tasks</p>
-                </div>
-                <button
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    notifications.reminders ? 'bg-primary' : 'bg-gray-200'
-                  }`}
-                  onClick={() =>
-                    setNotifications({ ...notifications, reminders: !notifications.reminders })
-                  }
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                      notifications.reminders ? 'translate-x-5' : ''
-                    }`}
-                  />
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Achievement Alerts</p>
-                  <p className="text-sm text-muted-foreground">Celebrate your milestones</p>
-                </div>
-                <button
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    notifications.achievements ? 'bg-primary' : 'bg-gray-200'
-                  }`}
-                  onClick={() =>
-                    setNotifications({ ...notifications, achievements: !notifications.achievements })
-                  }
-                >
-                  <span
-                    className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                      notifications.achievements ? 'translate-x-5' : ''
-                    }`}
-                  />
-                </button>
-              </div>
             </CardContent>
           </Card>
 
@@ -180,18 +164,17 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Theme</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['light', 'dark', 'system'] as const).map((t) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {(['light', 'dark'] as const).map((t) => (
                     <button
                       key={t}
                       className={`flex items-center justify-center gap-2 rounded-lg border p-3 transition-colors ${
-                        theme === t ? 'border-primary bg-primary/5' : 'border-border'
+                        mounted && theme === t ? 'border-primary bg-primary/5' : 'border-border'
                       }`}
                       onClick={() => setTheme(t)}
                     >
                       {t === 'light' && <Sun className="h-5 w-5" />}
                       {t === 'dark' && <Moon className="h-5 w-5" />}
-                      {t === 'system' && <Globe className="h-5 w-5" />}
                       <span className="capitalize">{t}</span>
                     </button>
                   ))}
@@ -222,52 +205,47 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Weekly Target</label>
-                <p className="text-2xl font-bold">{(dailyGoal * 7) / 60}h / week</p>
+                <p className="text-2xl font-bold">{((dailyGoal * 7) / 60).toFixed(1)}h / week</p>
+              </div>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Save Goals
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                <CardTitle>Account Info</CardTitle>
+              </div>
+              <CardDescription>Your account details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-lg border">
+                <div>
+                  <p className="text-sm text-muted-foreground">Level</p>
+                  <p className="text-lg font-bold">{user?.level || 1}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Study Streak</p>
+                  <p className="text-lg font-bold">{user?.streakCount || 0} days</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Hours</p>
+                  <p className="text-lg font-bold">
+                    {user?.totalStudyMinutes ? Math.round((user.totalStudyMinutes / 60) * 10) / 10 : 0}h
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Security</CardTitle>
-            <CardDescription>Manage your account security</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Change Password</p>
-                <p className="text-sm text-muted-foreground">Update your password regularly</p>
-              </div>
-              <Button variant="outline">Change Password</Button>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Two-Factor Authentication</p>
-                <p className="text-sm text-muted-foreground">Add an extra layer of security</p>
-              </div>
-              <Button variant="outline">Enable 2FA</Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-destructive/50">
-          <CardHeader>
-            <CardTitle className="text-destructive">Danger Zone</CardTitle>
-            <CardDescription>Irreversible actions</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Delete Account</p>
-                <p className="text-sm text-muted-foreground">
-                  Permanently delete your account and all data
-                </p>
-              </div>
-              <Button variant="destructive">Delete Account</Button>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </DashboardLayout>
   );

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/layout/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { subjectsAPI } from '@/lib/api';
+import { subjectsAPI, progressAPI, studyPlanAPI } from '@/lib/api';
 import { Loader2, TrendingUp, Clock, Target, Flame, Download, Plus } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -37,14 +37,31 @@ export default function AnalyticsPage() {
 
   const fetchData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const subjectsRes = await subjectsAPI.getAll();
+      const [subjectsRes, tasksRes, weeklyRes] = await Promise.all([
+        subjectsAPI.getAll(),
+        studyPlanAPI.getTasks().catch(() => null),
+        progressAPI.getWeeklyStats().catch(() => null),
+      ]);
       setSubjects(subjectsRes.data || []);
 
-      const weeklyRes = await fetch('/api/progress/weekly', { headers }).then(r => r.json()).catch(() => null);
-      setWeeklyStats(weeklyRes || null);
+      const tasksData = tasksRes?.data || [];
+      const completedTasks = tasksData.filter((t: any) => t.status === 'completed');
+
+      const totalMinutes = completedTasks.reduce(
+        (sum: number, t: any) => sum + (t.actualMinutes || t.plannedMinutes || 0),
+        0,
+      );
+      const totalSessions = completedTasks.length;
+      const avgDailyMinutes = Math.round(totalMinutes / 7);
+
+      const weeklyData = weeklyRes?.data || null;
+
+      setWeeklyStats({
+        totalMinutes,
+        dailyStats: weeklyData?.dailyStats || [],
+        avgDailyMinutes,
+        totalSessions,
+      });
     } catch (error) {
       console.error('Error fetching analytics:', error);
     } finally {

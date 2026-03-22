@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { StudySession } from '../../schemas/study-session.schema';
-import { Subject } from '../../schemas/subject.schema';
-import { ProgressLog } from '../../schemas/progress-log.schema';
+import { Injectable } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import { StudySession } from "../../schemas/study-session.schema";
+import { Subject } from "../../schemas/subject.schema";
+import { ProgressLog } from "../../schemas/progress-log.schema";
 
 @Injectable()
 export class ProgressService {
@@ -13,10 +13,15 @@ export class ProgressService {
     @InjectModel(ProgressLog.name) private progressLogModel: Model<ProgressLog>,
   ) {}
 
-  async startSession(userId: string, data: { subjectId?: string; taskId?: string }) {
+  async startSession(
+    userId: string,
+    data: { subjectId?: string; taskId?: string },
+  ) {
     return this.sessionModel.create({
       userId: new Types.ObjectId(userId),
-      subjectId: data.subjectId ? new Types.ObjectId(data.subjectId) : undefined,
+      subjectId: data.subjectId
+        ? new Types.ObjectId(data.subjectId)
+        : undefined,
       taskId: data.taskId ? new Types.ObjectId(data.taskId) : undefined,
       startTime: new Date(),
     });
@@ -31,7 +36,9 @@ export class ProgressService {
     if (!session) return null;
 
     const endTime = new Date();
-    const duration = Math.round((endTime.getTime() - session.startTime.getTime()) / 60000);
+    const duration = Math.round(
+      (endTime.getTime() - session.startTime.getTime()) / 60000,
+    );
 
     return this.sessionModel.findByIdAndUpdate(
       sessionId,
@@ -42,7 +49,7 @@ export class ProgressService {
         notes: data.notes,
         mood: data.mood,
       },
-      { new: true }
+      { new: true },
     );
   }
 
@@ -55,9 +62,10 @@ export class ProgressService {
       if (endDate) where.startTime.$lte = new Date(endDate);
     }
 
-    return this.sessionModel.find(where)
-      .populate('subjectId')
-      .populate('taskId')
+    return this.sessionModel
+      .find(where)
+      .populate("subjectId")
+      .populate("taskId")
       .sort({ startTime: -1 })
       .limit(50);
   }
@@ -67,36 +75,29 @@ export class ProgressService {
     weekAgo.setDate(weekAgo.getDate() - 7);
     weekAgo.setHours(0, 0, 0, 0);
 
-    const sessions = await this.sessionModel.find({
+    const logs = await this.progressLogModel.find({
       userId: new Types.ObjectId(userId),
-      startTime: { $gte: weekAgo },
-    }).populate('subjectId');
+      date: { $gte: weekAgo },
+    }).sort({ date: 1 });
 
     const dailyStats = [];
     for (let i = 0; i < 7; i++) {
       const date = new Date(weekAgo);
       date.setDate(date.getDate() + i);
       const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date(date);
       dayEnd.setDate(dayEnd.getDate() + 1);
+      dayEnd.setHours(0, 0, 0, 0);
 
-      const daySessions = sessions.filter(
-        s => s.startTime >= dayStart && s.startTime < dayEnd
+      const dayLog = logs.find(
+        (l) => l.date >= dayStart && l.date < dayEnd,
       );
 
-      const subjectBreakdown: Record<string, number> = {};
-      daySessions.forEach(session => {
-        if ((session as any).subjectId?.name) {
-          const name = (session as any).subjectId.name;
-          subjectBreakdown[name] = (subjectBreakdown[name] || 0) + session.duration;
-        }
-      });
-
       dailyStats.push({
-        date: date.toISOString().split('T')[0],
-        totalMinutes: daySessions.reduce((sum, s) => sum + s.duration, 0),
-        sessionsCount: daySessions.length,
-        subjectBreakdown,
+        date: date.toISOString().split("T")[0],
+        totalMinutes: dayLog ? dayLog.studyMinutes : 0,
+        sessionsCount: dayLog ? dayLog.tasksCompleted : 0,
       });
     }
 
@@ -106,16 +107,17 @@ export class ProgressService {
       dailyStats,
       totalMinutes,
       avgDailyMinutes: Math.round(totalMinutes / 7),
-      totalSessions: sessions.length,
+      totalSessions: logs.reduce((sum, l) => sum + l.tasksCompleted, 0),
     };
   }
 
   async getSubjectAnalytics(userId: string) {
-    const sessions = await this.sessionModel.find({ userId: new Types.ObjectId(userId) })
-      .populate('subjectId');
+    const sessions = await this.sessionModel
+      .find({ userId: new Types.ObjectId(userId) })
+      .populate("subjectId");
 
     const subjectStats: Record<string, any> = {};
-    sessions.forEach(session => {
+    sessions.forEach((session) => {
       if ((session as any).subjectId) {
         const subject = (session as any).subjectId;
         if (!subjectStats[subject._id]) {
@@ -142,10 +144,12 @@ export class ProgressService {
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
-    const sessions = await this.sessionModel.find({
-      userId: new Types.ObjectId(userId),
-      startTime: { $gte: startDate },
-    }).populate('subjectId');
+    const sessions = await this.sessionModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        startTime: { $gte: startDate },
+      })
+      .populate("subjectId");
 
     const dailyStats = [];
     for (let i = 0; i < days; i++) {
@@ -156,19 +160,20 @@ export class ProgressService {
       dayEnd.setDate(dayEnd.getDate() + 1);
 
       const daySessions = sessions.filter(
-        s => s.startTime >= dayStart && s.startTime < dayEnd
+        (s) => s.startTime >= dayStart && s.startTime < dayEnd,
       );
 
       const subjectBreakdown: Record<string, number> = {};
-      daySessions.forEach(session => {
+      daySessions.forEach((session) => {
         if ((session as any).subjectId?.name) {
           const name = (session as any).subjectId.name;
-          subjectBreakdown[name] = (subjectBreakdown[name] || 0) + session.duration;
+          subjectBreakdown[name] =
+            (subjectBreakdown[name] || 0) + session.duration;
         }
       });
 
       dailyStats.push({
-        date: date.toISOString().split('T')[0],
+        date: date.toISOString().split("T")[0],
         totalMinutes: daySessions.reduce((sum, s) => sum + s.duration, 0),
         sessionsCount: daySessions.length,
         subjectBreakdown,

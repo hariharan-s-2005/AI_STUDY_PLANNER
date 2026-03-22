@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Send, Bot, User, Sparkles } from 'lucide-react';
+import { aiAPI } from '@/lib/api';
 
 export default function AiAssistantPage() {
   const [messages, setMessages] = useState<{role: string; content: string}[]>([]);
@@ -28,24 +29,18 @@ export default function AiAssistantPage() {
     if (!input.trim()) return;
 
     const userMsg = input;
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    const newMessages = [...messages, { role: 'user', content: userMsg }];
+    setMessages(newMessages);
     setInput('');
     setIsTyping(true);
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:4000/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ message: userMsg })
-      });
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply || 'Sorry, I could not respond.' }]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+      const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content }));
+      const res = await aiAPI.chat(userMsg, history);
+      setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply || 'Sorry, I could not respond.' }]);
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || 'Sorry, I encountered an error. Please try again.';
+      setMessages(prev => [...prev, { role: 'assistant', content: errorMsg }]);
     } finally {
       setIsTyping(false);
     }
