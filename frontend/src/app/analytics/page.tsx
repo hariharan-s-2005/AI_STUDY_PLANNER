@@ -31,43 +31,76 @@ export default function AnalyticsPage() {
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
   const [timeRange, setTimeRange] = useState('week');
 
+  const [completedTasks, setCompletedTasks] = useState<any[]>([]);
+
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
     try {
-      const [subjectsRes, tasksRes, weeklyRes] = await Promise.all([
+      const [subjectsRes, tasksRes] = await Promise.all([
         subjectsAPI.getAll(),
         studyPlanAPI.getTasks().catch(() => null),
-        progressAPI.getWeeklyStats().catch(() => null),
       ]);
       setSubjects(subjectsRes.data || []);
 
       const tasksData = tasksRes?.data || [];
-      const completedTasks = tasksData.filter((t: any) => t.status === 'completed');
-
-      const totalMinutes = completedTasks.reduce(
-        (sum: number, t: any) => sum + (t.actualMinutes || t.plannedMinutes || 0),
-        0,
-      );
-      const totalSessions = completedTasks.length;
-      const avgDailyMinutes = Math.round(totalMinutes / 7);
-
-      const weeklyData = weeklyRes?.data || null;
-
-      setWeeklyStats({
-        totalMinutes,
-        dailyStats: weeklyData?.dailyStats || [],
-        avgDailyMinutes,
-        totalSessions,
-      });
+      const completed = tasksData.filter((t: any) => t.status === 'completed');
+      setCompletedTasks(completed);
     } catch (error) {
       console.error('Error fetching analytics:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (loading) return;
+
+    const days = timeRange === 'month' ? 30 : timeRange === 'year' ? 365 : 7;
+    
+    // Generate daily stats using local timezone formatting
+    const getLocalDateString = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const generatedDailyStats = [];
+    let periodTotalMinutes = 0;
+    let periodTotalSessions = 0;
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = getLocalDateString(d);
+
+      const dayTasks = completedTasks.filter((t: any) => {
+        const taskDate = new Date(t.completedAt || t.updatedAt || t.scheduledDate || new Date());
+        return getLocalDateString(taskDate) === dateStr;
+      });
+
+      const dayMinutes = dayTasks.reduce((sum: number, t: any) => sum + (t.actualMinutes || t.plannedMinutes || 0), 0);
+      
+      periodTotalMinutes += dayMinutes;
+      periodTotalSessions += dayTasks.length;
+
+      generatedDailyStats.push({
+        date: dateStr,
+        totalMinutes: dayMinutes,
+        sessionsCount: dayTasks.length,
+      });
+    }
+
+    setWeeklyStats({
+      totalMinutes: periodTotalMinutes,
+      dailyStats: generatedDailyStats,
+      avgDailyMinutes: Math.round(periodTotalMinutes / days),
+      totalSessions: periodTotalSessions,
+    });
+  }, [completedTasks, timeRange, loading]);
 
   if (loading) {
     return (
